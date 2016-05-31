@@ -14,7 +14,8 @@ namespace ResizableRectangles
     {
         NONE,
         DRAWING,
-        OBJ_SELECT
+        OBJ_SELECT,
+        PANNING
     }
 
     enum ResizeBorder  // keep track of which border of the box is to be resized.
@@ -54,11 +55,9 @@ namespace ResizableRectangles
             pictureBox1.MouseWheel += PictureBox1_MouseWheel;
         }
 
-       
-
         private void toolStripButtonDrawRect_Click(object sender, EventArgs e)
         {
-            if(mouseModeEnum == MouseMode.NONE || mouseModeEnum == MouseMode.OBJ_SELECT)
+            if(mouseModeEnum == MouseMode.NONE || mouseModeEnum == MouseMode.OBJ_SELECT || mouseModeEnum == MouseMode.PANNING)
             {
                 mouseModeEnum = MouseMode.DRAWING;
                 toolStripButtonDrawRect.BackColor = Color.Orange;
@@ -108,6 +107,9 @@ namespace ResizableRectangles
                     case MouseMode.DRAWING:
                         startPoint = currentPoint = e.Location;
                         break;
+                    case MouseMode.PANNING:
+                        startPoint = e.Location;
+                        break;
                     case MouseMode.NONE:
                     case MouseMode.OBJ_SELECT:
                         if (mouseModeEnum == MouseMode.OBJ_SELECT && (pictureBox1.Cursor == Cursors.SizeNS || pictureBox1.Cursor == Cursors.SizeWE || pictureBox1.Cursor == Cursors.SizeNWSE || pictureBox1.Cursor == Cursors.SizeNESW))
@@ -130,7 +132,7 @@ namespace ResizableRectangles
             }
             if(e.Button == MouseButtons.Right)
             {
-                if (mouseModeEnum == MouseMode.DRAWING)
+                if (mouseModeEnum == MouseMode.DRAWING || mouseModeEnum == MouseMode.PANNING)
                 {
                     mouseModeEnum = MouseMode.NONE;
                     Cursor = Cursors.Default;
@@ -197,7 +199,12 @@ namespace ResizableRectangles
                     {
                         case MouseMode.DRAWING:
                             currentPoint = e.Location;
-                            
+                            break;
+                        case MouseMode.PANNING:
+                            if (pictureBox1.Width > panel1.Width || pictureBox1.Height > panel1.Height)
+                            {
+                                pictureBox1.Location = new Point(pictureBox1.Location.X + e.X - startPoint.X, pictureBox1.Location.Y + e.Y - startPoint.Y);
+                            }
                             break;
                         case MouseMode.OBJ_SELECT:
                             switch(resizeBorderEnum)
@@ -403,6 +410,7 @@ namespace ResizableRectangles
         private void pictureBox1_MouseEnter(object sender, EventArgs e)
         {
             if (mouseModeEnum == MouseMode.DRAWING) Cursor = Cursors.Cross;
+            else if (mouseModeEnum == MouseMode.PANNING) Cursor = Cursors.Hand;
             pictureBox1.Focus();
         }
 
@@ -418,7 +426,7 @@ namespace ResizableRectangles
                 if (e.Delta <= 0)
                 {
                     //set minimum size to zoom
-                    if (pictureBox1.Width < 350)
+                    if (pictureBox1.Width < 800)
                         return;
                 }
                 else
@@ -427,21 +435,87 @@ namespace ResizableRectangles
                     if (pictureBox1.Width > 10000)
                         return;
                 }
-                pictureBox1.Width += Convert.ToInt32(pictureBox1.Width * e.Delta / 1000);
-                pictureBox1.Height += Convert.ToInt32(pictureBox1.Height * e.Delta / 1000);
-                pictureBox1.Location = new Point((pictureBox1.Parent.ClientSize.Width / 2) - (pictureBox1.Width / 2),  (pictureBox1.Parent.ClientSize.Height / 2) - (pictureBox1.Height / 2));
+
+                ZoomInOut(e.Delta, e.Location);
+
                 if (pictureBox1.Width > panel1.Width || pictureBox1.Height > panel1.Height)
                 {
                     Cursor = Cursors.Hand;
+                    mouseModeEnum = MouseMode.PANNING;
                 }
                 else
                 {
                     mouseModeEnum = MouseMode.NONE;
                     Cursor = Cursors.Default;
                 }
+                pictureBox1.Invalidate();
             }
         }
 
+        
+        private void ZoomInOut(int zoomFactor, Point zoomPt)
+        {
+            if (pictureBox1.Width < 800 && zoomFactor == -120) return;
+            if (pictureBox1.Width > 10000 && zoomFactor == 120) return;
+
+            double[] xLocPercent = new double[rectList.Count];
+            double[] yLocPercent = new double[rectList.Count];
+            double[] rectWidthPercent = new double[rectList.Count];
+            double[] rectHeightPercent = new double[rectList.Count];
+
+            double Width = pictureBox1.Width;
+            double Height = pictureBox1.Height;
+                
+            for (int i = 0; i < rectList.Count; i++)
+            {
+                double X = rectList[i].rectangle.X;
+                double Y = rectList[i].rectangle.Y;
+                double W = rectList[i].rectangle.Width;
+                double H = rectList[i].rectangle.Height;
+
+                xLocPercent[i] = (X / Width) * 100;
+                yLocPercent[i] = (Y / Height) * 100;
+                rectWidthPercent[i] = (W / Width) * 100;
+                rectHeightPercent[i] = (H / Height) * 100;
+            }
+
+            if (zoomFactor != 0)
+            {
+                Width = pictureBox1.Width += Convert.ToInt32(pictureBox1.Width * zoomFactor / 1000);
+                Height = pictureBox1.Height += Convert.ToInt32(pictureBox1.Height * zoomFactor / 1000);
+
+                for (int i = 0; i < rectList.Count; i++)
+                {
+                    rectList[i].rectangle.Width = Convert.ToInt32((pictureBox1.Width * rectWidthPercent[i]) / 100);
+                    rectList[i].rectangle.Height = Convert.ToInt32((pictureBox1.Height * rectHeightPercent[i]) / 100);
+                    rectList[i].rectangle.X = Convert.ToInt32((Width * xLocPercent[i]) / 100);
+                    rectList[i].rectangle.Y = Convert.ToInt32((Height * yLocPercent[i]) / 100);
+                    rectList[i].SetNewLocationOfSubRectList();
+                }
+                //pictureBox1.Location = new Point(pictureBox1.Location.X + (int)(((pictureBox1.Location.X - zoomPt.X) / 10) * zoomFactor/1000), pictureBox1.Location.Y + (int)(((pictureBox1.Location.Y - zoomPt.Y) / 10) * zoomFactor/1000));
+                //pictureBox1.Top = Convert.ToInt32(zoomPt.Y - (zoomFactor / 1000) * (zoomPt.Y - pictureBox1.Top));
+                //pictureBox1.Left = Convert.ToInt32(zoomPt.X - (zoomFactor / 1000) * (zoomPt.X - pictureBox1.Left));
+                //if (zoomFactor > 0) pictureBox1.Location = new Point(pictureBox1.Location.X + panel1.Width / 2 - zoomPt.X, pictureBox1.Location.Y + panel1.Height / 2 - zoomPt.Y);
+                //else
+                //    pictureBox1.Location = new Point((pictureBox1.Parent.ClientSize.Width / 2) - (pictureBox1.Width / 2), (pictureBox1.Parent.ClientSize.Height / 2) - (pictureBox1.Height / 2));
+                pictureBox1.Location = new Point((pictureBox1.Parent.ClientSize.Width / 2) - (pictureBox1.Width / 2), (pictureBox1.Parent.ClientSize.Height / 2) - (pictureBox1.Height / 2));
+            }
+            else
+            {
+                //Reset zoom
+                pictureBox1.Width = panel1.Width;
+                pictureBox1.Height = panel1.Height;
+                for (int i = 0; i < rectList.Count; i++)
+                {
+                    rectList[i].rectangle.Width = Convert.ToInt32((pictureBox1.Width * rectWidthPercent[i]) / 100);
+                    rectList[i].rectangle.Height = Convert.ToInt32((pictureBox1.Height * rectHeightPercent[i]) / 100);
+                    rectList[i].rectangle.X = Convert.ToInt32((pictureBox1.Width * xLocPercent[i]) / 100);
+                    rectList[i].rectangle.Y = Convert.ToInt32((pictureBox1.Height * yLocPercent[i]) / 100);
+                    rectList[i].SetNewLocationOfSubRectList();
+                }
+                pictureBox1.Location = new Point(0, 0);
+            }
+        }
         private void toolStripButtonSaveImage_Click(object sender, EventArgs e)
         {
             SaveFileDialog saveFile = new SaveFileDialog();
@@ -454,20 +528,27 @@ namespace ResizableRectangles
 
         private void toolStripButton1_Click(object sender, EventArgs e)
         {
-
+            ZoomInOut(120, new Point(0,0));
         }
 
         private void toolStripButton2_Click(object sender, EventArgs e)
         {
-
+            ZoomInOut(-120, new Point(0, 0));
         }
 
         private void toolStripButton3_Click(object sender, EventArgs e)
         {
-            pictureBox1.Location = new Point(0, 0);
+            ZoomInOut(0, new Point(0, 0));
+        }
 
-            pictureBox1.Width = panel1.Width;
-            pictureBox1.Height = panel1.Height;
+        private void toolStripButtonOan_Click(object sender, EventArgs e)
+        {
+            mouseModeEnum = MouseMode.PANNING;
+        }
+
+        private void toolStripButton4_Click(object sender, EventArgs e)
+        {
+            mouseModeEnum = MouseMode.NONE;
         }
     }
 }
